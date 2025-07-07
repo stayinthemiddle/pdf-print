@@ -1,0 +1,41 @@
+# DeepSeek AI PDF管理系统配置文件示例
+# 使用说明：
+# 1. 复制此文件为 config.yaml
+# 2. 填入你的 DeepSeek API 密钥
+# 3. 根据需要调整其他参数
+
+deepseek:
+  # API密钥 - 建议从环境变量DEEPSEEK_API_KEY读取
+  api_key: ""  # 留空从环境变量读取，或填入你的密钥
+  base_url: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+  temperature: 0.1  # 低温度保证稳定输出
+  max_tokens: 1000
+  timeout: 30  # API调用超时时间（秒）
+  
+extraction:
+  max_pages: 3  # 最多提取前3页
+  max_chars: 3000  # 每次最多3000字符
+  cache_enabled: true
+  cache_dir: ".cache/deepseek"
+  cache_ttl: 86400  # 缓存有效期（秒）：24小时
+  
+matching:
+  similarity_threshold: 0.7  # 相似度阈值
+  use_semantic_analysis: true
+  batch_size: 10  # 批量处理大小
+  
+limits:
+  daily_api_calls: 1000
+  monthly_budget: 10  # 预算（人民币）
+  cost_per_1k_tokens: 0.001  # 每1000 tokens的成本（人民币）
+  
+retry:
+  max_attempts: 3
+  initial_delay: 1  # 初始重试延迟（秒）
+  exponential_backoff: true
+  
+logging:
+  level: "INFO"
+  file: "deepseek_api.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

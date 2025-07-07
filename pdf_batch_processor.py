@@ -1,27 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+PDF批量处理程序 - 手动运行版本
+每次运行时处理所有未处理的PDF文件
+支持AI增强的元数据提取
+"""
+
 import os
-import shutil
-import time
-import logging
 import re
+import logging
 from datetime import datetime
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+import argparse
+from typing import Dict, Optional
+
 import PyPDF2
 import pdfplumber
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
+from tqdm import tqdm
+
+# 导入AI模块（如果可用）
+try:
+    from llm_extractor import LLMExtractor
+    AI_AVAILABLE = True
+except ImportError:
+    AI_AVAILABLE = False
+    print("警告: AI模块未安装，将使用传统提取方法")
 
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('pdf_manager.log', encoding='utf-8'),
+        logging.FileHandler('pdf_batch.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -50,13 +64,9 @@ class PDFMetadataExtractor:
                     metadata['title'] = info.get('/Title', '') or ''
                     metadata['author'] = info.get('/Author', '') or ''
                     
-                    # 尝试从Subject或Keywords中提取期刊信息
-                    subject = info.get('/Subject', '') or ''
-                    keywords = info.get('/Keywords', '') or ''
-                    
                     # 简单的年份提取
                     creation_date = info.get('/CreationDate', '')
-                    if creation_date and len(creation_date) >= 4:
+                    if creation_date and len(str(creation_date)) >= 4:
                         year_match = re.search(r'(\d{4})', str(creation_date))
                         if year_match:
                             metadata['year'] = year_match.group(1)
@@ -105,7 +115,8 @@ class ExcelManager:
     
     def __init__(self, excel_path):
         self.excel_path = excel_path
-        self.columns = ['序号', '文件名', '原始文件名', '类型', '标题', '作者', '期刊', '年份', 'DOI', '添加时间']
+        self.columns = ['序号', '文件名', '原始文件名', '类型', '标题', '作者', '期刊', '年份', 'DOI', 
+                       '添加时间', '提取方式', '提取置信度', '配对文献', '配对置信度']
         self._ensure_excel_exists()
     
     def _ensure_excel_exists(self):
@@ -165,19 +176,44 @@ class ExcelManager:
         except Exception as e:
             logging.warning(f"调整列宽时出错: {str(e)}")
 
-class PDFHandler(FileSystemEventHandler):
-    """PDF文件处理器"""
+class PDFBatchProcessor:
+    """PDF批量处理器"""
     
-    def __init__(self, watch_dirs, excel_manager):
-        self.watch_dirs = watch_dirs
-        self.excel_manager = excel_manager
+    def __init__(self, use_ai=False):
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.chinese_dir = os.path.join(self.base_dir, '中文pdf')
+        self.english_dir = os.path.join(self.base_dir, '英文pdf')
+        self.excel_path = os.path.join(self.base_dir, 'pdf_records.xlsx')
+        
+        # 确保文件夹存在
+        self._ensure_directories()
+        
+        # 初始化Excel管理器
+        self.excel_manager = ExcelManager(self.excel_path)
+        
+        # 初始化计数器
         self.chinese_counter = self._get_max_counter('中文pdf', 'c')
         self.english_counter = self._get_max_counter('英文pdf', 'e')
+        
+        # AI提取器
+        self.use_ai = use_ai and AI_AVAILABLE
+        if self.use_ai:
+            self.llm_extractor = LLMExtractor()
+            logging.info("已启用AI元数据提取")
+        else:
+            self.traditional_extractor = PDFMetadataExtractor()
     
-    def _get_max_counter(self, folder, prefix):
+    def _ensure_directories(self):
+        """确保必要的文件夹存在"""
+        for dir_path in [self.chinese_dir, self.english_dir]:
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
+                logging.info(f"创建文件夹: {dir_path}")
+    
+    def _get_max_counter(self, folder_name, prefix):
         """获取文件夹中最大的计数器值"""
-        folder_path = self.watch_dirs.get(folder)
-        if not folder_path or not os.path.exists(folder_path):
+        folder_path = os.path.join(self.base_dir, folder_name)
+        if not os.path.exists(folder_path):
             return 0
         
         max_num = 0
@@ -191,162 +227,115 @@ class PDFHandler(FileSystemEventHandler):
         
         return max_num
     
-    def on_created(self, event):
-        """文件创建时触发"""
-        if event.is_directory:
-            return
+    def process_folder(self, folder_path, file_type, prefix):
+        """处理一个文件夹中的所有PDF文件"""
+        processed_count = 0
         
-        if event.src_path.lower().endswith('.pdf'):
-            # 检查文件是否已经是目标格式
-            filename = os.path.basename(event.src_path)
-            if re.match(r'^[ce]\d+\.pdf$', filename):
-                return
-            # 等待文件写入完成
-            time.sleep(0.5)
-            self.process_pdf(event.src_path)
-    
-    def on_moved(self, event):
-        """文件移动时触发（拖入）"""
-        if event.is_directory:
-            return
+        if not os.path.exists(folder_path):
+            return processed_count
         
-        if event.dest_path.lower().endswith('.pdf'):
-            # 检查文件是否已经是目标格式
-            filename = os.path.basename(event.dest_path)
-            if re.match(r'^[ce]\d+\.pdf$', filename):
-                return
-            # 等待文件移动完成
-            time.sleep(0.5)
-            self.process_pdf(event.dest_path)
-    
-    def process_pdf(self, file_path):
-        """处理PDF文件"""
-        try:
-            # 确定文件类型
-            parent_dir = os.path.basename(os.path.dirname(file_path))
+        # 获取所有PDF文件
+        pdf_files = [f for f in os.listdir(folder_path) 
+                     if f.lower().endswith('.pdf') and not re.match(f'^{prefix}\d+\.pdf$', f)]
+        
+        # 使用进度条
+        for filename in tqdm(pdf_files, desc=f"处理{file_type}PDF", disable=len(pdf_files) == 0):
+            file_path = os.path.join(folder_path, filename)
             
-            if parent_dir == '中文pdf':
-                file_type = '中文'
-                prefix = 'c'
+            # 更新计数器
+            if file_type == '中文':
                 self.chinese_counter += 1
                 counter = self.chinese_counter
-            elif parent_dir == '英文pdf':
-                file_type = '英文'
-                prefix = 'e'
+            else:
                 self.english_counter += 1
                 counter = self.english_counter
-            else:
-                logging.warning(f"未知的文件夹: {parent_dir}")
-                return
             
             # 生成新文件名
             new_filename = f"{prefix}{counter:02d}.pdf"
-            new_path = os.path.join(os.path.dirname(file_path), new_filename)
+            new_path = os.path.join(folder_path, new_filename)
             
-            # 保存原始文件名
-            original_filename = os.path.basename(file_path)
-            
-            # 如果文件已经是目标格式，跳过
-            if file_path == new_path:
-                logging.info(f"文件已经是目标格式: {new_filename}")
-                return
-            
-            # 重命名文件
-            os.rename(file_path, new_path)
-            logging.info(f"重命名: {original_filename} -> {new_filename}")
-            
-            # 提取元数据
-            metadata = PDFMetadataExtractor.extract_metadata(new_path)
-            
-            # 准备Excel记录
-            record = {
-                '序号': counter,
-                '文件名': new_filename,
-                '原始文件名': original_filename,
-                '类型': file_type,
-                '标题': metadata['title'],
-                '作者': metadata['author'],
-                '期刊': metadata['journal'],
-                '年份': metadata['year'],
-                'DOI': metadata['doi'],
-                '添加时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            # 添加到Excel
-            self.excel_manager.add_record(record)
-            
-        except Exception as e:
-            logging.error(f"处理PDF文件时出错 {file_path}: {str(e)}")
-
-class PDFManager:
-    """PDF管理器主类"""
-    
-    def __init__(self):
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.chinese_dir = os.path.join(self.base_dir, '中文pdf')
-        self.english_dir = os.path.join(self.base_dir, '英文pdf')
-        self.excel_path = os.path.join(self.base_dir, 'pdf_records.xlsx')
-        
-        # 确保文件夹存在
-        self._ensure_directories()
-        
-        # 初始化Excel管理器
-        self.excel_manager = ExcelManager(self.excel_path)
-        
-        # 初始化监控器
-        self.observer = Observer()
-        
-    def _ensure_directories(self):
-        """确保必要的文件夹存在"""
-        for dir_path in [self.chinese_dir, self.english_dir]:
-            if not os.path.exists(dir_path):
-                os.makedirs(dir_path)
-                logging.info(f"创建文件夹: {dir_path}")
-    
-    def start(self):
-        """启动PDF管理器"""
-        logging.info("PDF管理系统启动...")
-        logging.info(f"监控文件夹: {self.chinese_dir}")
-        logging.info(f"监控文件夹: {self.english_dir}")
-        logging.info(f"Excel记录文件: {self.excel_path}")
-        
-        # 创建事件处理器
-        watch_dirs = {
-            '中文pdf': self.chinese_dir,
-            '英文pdf': self.english_dir
-        }
-        handler = PDFHandler(watch_dirs, self.excel_manager)
-        
-        # 设置监控
-        self.observer.schedule(handler, self.chinese_dir, recursive=False)
-        self.observer.schedule(handler, self.english_dir, recursive=False)
-        
-        # 启动监控
-        self.observer.start()
-        
-        try:
-            print("\n✅ PDF管理系统已启动！")
-            print("📁 监控文件夹:")
-            print(f"   - 中文PDF: {self.chinese_dir}")
-            print(f"   - 英文PDF: {self.english_dir}")
-            print("📊 Excel记录: pdf_records.xlsx")
-            print("\n🔄 正在监控文件夹，将PDF文件拖入相应文件夹即可自动处理...")
-            print("📝 按 Ctrl+C 停止程序\n")
-            
-            while True:
-                time.sleep(1)
+            try:
+                # 重命名文件
+                os.rename(file_path, new_path)
+                logging.info(f"重命名: {filename} -> {new_filename}")
                 
-        except KeyboardInterrupt:
-            print("\n正在停止程序...")
-            self.observer.stop()
-            logging.info("PDF管理系统已停止")
+                # 提取元数据
+                if self.use_ai:
+                    metadata = self.llm_extractor.extract_metadata(new_path, use_llm=True)
+                    extraction_method = 'AI'
+                    confidence = metadata.get('confidence', '0')
+                else:
+                    metadata = self.traditional_extractor.extract_metadata(new_path)
+                    extraction_method = '传统'
+                    confidence = '30'  # 传统方法默认置信度
+                
+                # 准备Excel记录
+                record = {
+                    '序号': counter,
+                    '文件名': new_filename,
+                    '原始文件名': filename,
+                    '类型': file_type,
+                    '标题': metadata.get('title', ''),
+                    '作者': metadata.get('authors', metadata.get('author', '')),
+                    '期刊': metadata.get('journal', ''),
+                    '年份': metadata.get('year', ''),
+                    'DOI': metadata.get('doi', ''),
+                    '添加时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    '提取方式': extraction_method,
+                    '提取置信度': confidence,
+                    '配对文献': '',
+                    '配对置信度': ''
+                }
+                
+                # 添加到Excel
+                self.excel_manager.add_record(record)
+                processed_count += 1
+                
+            except Exception as e:
+                logging.error(f"处理文件 {filename} 时出错: {str(e)}")
         
-        self.observer.join()
+        return processed_count
+    
+    def run(self):
+        """运行批量处理"""
+        print("\n🚀 PDF批量处理程序")
+        if self.use_ai:
+            print("🤖 已启用AI元数据提取")
+        print("=" * 50)
+        
+        # 处理中文PDF
+        print("\n📂 处理中文PDF文件夹...")
+        chinese_count = self.process_folder(self.chinese_dir, '中文', 'c')
+        print(f"   ✅ 处理了 {chinese_count} 个中文PDF文件")
+        
+        # 处理英文PDF
+        print("\n📂 处理英文PDF文件夹...")
+        english_count = self.process_folder(self.english_dir, '英文', 'e')
+        print(f"   ✅ 处理了 {english_count} 个英文PDF文件")
+        
+        # 总结
+        total_count = chinese_count + english_count
+        print("\n" + "=" * 50)
+        print(f"📊 处理完成！总共处理了 {total_count} 个文件")
+        
+        if total_count > 0:
+            print(f"📝 所有记录已保存到: pdf_records.xlsx")
+        else:
+            print("💡 没有发现需要处理的新文件")
+            print("   提示：请确保PDF文件放在正确的文件夹中")
+            print("   - 中文PDF -> 中文pdf/")
+            print("   - 英文PDF -> 英文pdf/")
 
 def main():
     """主函数"""
-    manager = PDFManager()
-    manager.start()
+    parser = argparse.ArgumentParser(description='PDF批量处理程序')
+    parser.add_argument('--use-ai', action='store_true', help='使用AI提取元数据')
+    parser.add_argument('--batch-size', type=int, default=20, help='批处理大小')
+    
+    args = parser.parse_args()
+    
+    processor = PDFBatchProcessor(use_ai=args.use_ai)
+    processor.run()
 
 if __name__ == "__main__":
     main()

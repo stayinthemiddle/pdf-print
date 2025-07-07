@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# Mn‡ö+Oáo	
+config.yaml
+
+# å×‡ö
+*.log
+
+# X
+.cache/
+
+# 4ö‡ö
+*.tmp
+*.bak
+.DS_Store
+
+# “ú‡ö
+*.html
+!test_matching.html  # ï	ÝY:‹¥J
+
+# Excelý
+*.xlsx~
+~$*.xlsx
+
+# APIß¡‡ö+(°U	
+api_stats.json
+
+# IDEMn
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# KÕ“ú
+test_output/
+temp/

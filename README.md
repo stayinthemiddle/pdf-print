@@ -91,19 +91,40 @@ python3 clean_excel.py
 
 1. **中英文文献配对分析**：
 ```bash
-# 生成配对分析报告
+# 基础配对分析（快速）
 python3 paper_matcher.py
 
-# 更新Excel中的配对信息
-python3 paper_matcher.py --update-excel
+# 增强配对分析（使用翻译和AI，更准确）
+python3 enhanced_matcher.py --update-excel
+
+# 显示详细匹配过程
+python3 enhanced_matcher.py --show-details --update-excel
 ```
 
-2. **查看API使用统计**：
+配对分析功能：
+- 自动翻译中文标题以进行匹配
+- 智能分析作者姓名的不同表示方式
+- 生成HTML报告显示配对结果和翻译
+- 只在英文文献记录中更新配对信息
+
+2. **手动修正元数据**：
+```bash
+# 查看当前信息
+python3 fix_metadata.py --file c01.pdf --show
+
+# 修正年份
+python3 fix_metadata.py --file c01.pdf --year 2021
+
+# 修正多个字段
+python3 fix_metadata.py --file c01.pdf --year 2021 --journal "Nature Biomedical Engineering"
+```
+
+3. **查看API使用统计**：
 ```bash
 python3 deepseek_helper.py --stats
 ```
 
-3. **测试AI功能**：
+4. **测试AI功能**：
 ```bash
 python3 test_ai_features.py
 ```
@@ -164,4 +185,36 @@ Excel文件包含以下列：
 3. **成本控制**：
    - 每次API调用约消耗0.001元（1000 tokens）
    - 使用 `--stats` 查看累计成本
+
+## 版本控制和安全提交
+
+使用提供的脚本安全地将代码提交到Git：
+
+```bash
+# 运行安全添加脚本
+./git_safe_add.sh
+
+# 或手动运行
+bash git_safe_add.sh
+```
+
+这个脚本会：
+- 自动添加所有代码文件，但排除敏感信息
+- 保护 `config.yaml`（包含API密钥）
+- 排除日志文件、缓存和个人数据
+- 显示将要提交的文件列表
+
+## 常见问题
+
+1. **Q: 如何更新现有文献的配对信息？**
+   - A: 运行 `python3 enhanced_matcher.py --update-excel`
+
+2. **Q: 如何修正错误的元数据？**
+   - A: 使用 `fix_metadata.py` 脚本，例如：`python3 fix_metadata.py --file c01.pdf --year 2021`
+
+3. **Q: 翻译结果在哪里查看？**
+   - A: 运行增强配对后，打开生成的 `enhanced_matching_report.html` 文件
+
+4. **Q: 如何确保不泄露API密钥？**
+   - A: 使用 `git_safe_add.sh` 脚本提交代码，它会自动排除敏感文件
 

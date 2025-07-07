@@ -8,37 +8,45 @@ env/
 venv/
 .env
 
-# Mn��+O�o	
+# 配置文件
 config.yaml
+config.yaml.backup
 
-# �ׇ�
+# 日志文件
 *.log
 
-# X
+# 缓存
 .cache/
 
-# 4���
+# 临时文件
 *.tmp
 *.bak
 .DS_Store
 
-# ����
+# 生成的报告
 *.html
-!test_matching.html  # �	�Y:��J
+!enhanced_report_template.html  # 保留模板文件
 
-# Excel�
+# Excel临时文件
 *.xlsx~
 ~$*.xlsx
 
-# APIߡ��+(�U	
+# API统计文件
 api_stats.json
 
-# IDEMn
+# IDE配置
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# KՓ�
+# 测试输出
 test_output/
 temp/
+
+# PDF文件夹
+中文pdf/
+英文pdf/
+
+# 数据文件
+pdf_records.xlsx

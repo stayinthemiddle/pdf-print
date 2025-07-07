@@ -116,12 +116,16 @@ def rebuild_records(use_ai=False, batch_size=20):
                         '文件名': filename,
                         '原始文件名': '未知',  # 无法恢复原始文件名
                         '类型': '英文',
-                        '标题': metadata['title'],
-                        '作者': metadata['author'],
-                        '期刊': metadata['journal'],
-                        '年份': metadata['year'],
-                        'DOI': metadata['doi'],
-                        '添加时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        '标题': metadata.get('title', ''),
+                        '作者': metadata.get('authors', metadata.get('author', '')),
+                        '期刊': metadata.get('journal', ''),
+                        '年份': metadata.get('year', ''),
+                        'DOI': metadata.get('doi', ''),
+                        '添加时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        '提取方式': extraction_method,
+                        '提取置信度': confidence,
+                        '配对文献': '',
+                        '配对置信度': ''
                     }
                     
                     excel_manager.add_record(record)

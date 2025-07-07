@@ -454,15 +454,15 @@ class PaperMatcher:
             
             # 更新配对信息
             for match in matches:
-                # 更新中文文献
-                mask = df['文件名'] == match['chinese_file']
-                df.loc[mask, '配对文献'] = match['english_file']
-                df.loc[mask, '配对置信度'] = match.get('confidence', '')
-                
-                # 更新英文文献
+                # 只更新英文文献（记录对应的中文版）
                 mask = df['文件名'] == match['english_file']
                 df.loc[mask, '配对文献'] = match['chinese_file']
                 df.loc[mask, '配对置信度'] = match.get('confidence', '')
+                
+                # 中文文献的配对信息保持为空
+                mask = df['文件名'] == match['chinese_file']
+                df.loc[mask, '配对文献'] = ''
+                df.loc[mask, '配对置信度'] = ''
             
             # 保存更新
             df.to_excel(self.excel_path, index=False, engine='openpyxl')
